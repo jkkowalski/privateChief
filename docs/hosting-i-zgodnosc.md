@@ -51,7 +51,7 @@ ważniejszym twierdzeniu piszę, z czego wynika, zamiast podawać sam wynik.
   O kwalifikacji decyduje deklarowane przeznaczenie, nie technologia.
 - **Bezpieczny kontekst** (przeglądarki) — strona pod HTTPS albo `localhost`. Część
   funkcji przeglądarki (m.in. service worker, potrzebny do trybu offline) działa
-  wyłącznie w bezpiecznym kontekście. `http://192.168.1.27:8765` nim nie jest.
+  wyłącznie w bezpiecznym kontekście. `http://192.168.1.10:8765` nim nie jest.
 
 ## 1. Wniosek — i z czego wynika
 
@@ -337,7 +337,7 @@ konfigurować routera. Polecenie `tailscale cert` wystawia **prawdziwy certyfika
 To ostatnie ma skutek, który łączy się z pytaniem o tryb offline: przeglądarki
 rejestrują service worker — mechanizm, który trzyma kopię stron w telefonie i pozwala
 je otworzyć bez sieci — wyłącznie w bezpiecznym kontekście (HTTPS). Pod
-`http://192.168.1.27:8765` to niemożliwe; pod `https://komputer.tailnet.ts.net` — tak.
+`http://192.168.1.10:8765` to niemożliwe; pod `https://komputer.tailnet.ts.net` — tak.
 Czyli HTTPS z Tailscale jest warunkiem wstępnym „listy zakupów w sklepie bez zasięgu".
 
 Alternatywy: własny WireGuard na routerze (to samo bez firmy trzeciej, więcej pracy)
