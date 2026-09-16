@@ -28,6 +28,12 @@ const ROOT = U.ROOT;
 const USTAWIENIA = path.join(__dirname, 'czat-uprawnienia.json');
 const LIMIT_MS = Number(process.env.PC_CZAT_TIMEOUT || 240000);
 
+// Klucz API zamiast logowania Claude Code: rozliczenie za zużycie, warunki komercyjne,
+// bez pytania o współdzielenie subskrypcji z domownikami. Ustawia go aplikacja
+// z konfiguracja/web.json (pole "claudeApiKey") albo środowisko.
+let KLUCZ_API = process.env.ANTHROPIC_API_KEY || '';
+function ustawKluczApi(k) { if (k) KLUCZ_API = String(k); }
+
 // Na tej maszynie w PATH potrafią stać dwie instalacje Claude Code, z czego jedna bywa
 // uszkodzona po nieudanej aktualizacji (zostają same pliki claude.exe.old.*). Poleganie
 // na PATH kończy się wtedy błędem "is not recognized", więc szukamy pliku wprost —
@@ -165,7 +171,8 @@ function wywolaj(wiadomosc, sessionId) {
 
     // Bez powłoki — CLI jest ścieżką do pliku wykonywalnego, a cmd tylko psułby
     // cudzysłowy w argumentach (dotyczy to też --append-system-prompt).
-    const p = spawn(CLI, args, { cwd: ROOT, windowsHide: true });
+    const env = KLUCZ_API ? Object.assign({}, process.env, { ANTHROPIC_API_KEY: KLUCZ_API }) : process.env;
+    const p = spawn(CLI, args, { cwd: ROOT, windowsHide: true, env });
     let out = '', err = '';
     let zabity = false;
 
@@ -235,9 +242,9 @@ function sprawdz() {
             + CLI + '"). Zainstaluj go albo wskaż ścieżkę zmienną PC_CLAUDE.'
         });
       }
-      resolve({ ok: true, wersja: String(out).trim(), sciezka: CLI });
+      resolve({ ok: true, wersja: String(out).trim(), sciezka: CLI, klucz: !!KLUCZ_API });
     });
   });
 }
 
-module.exports = { zapytaj, sprawdz, zapomnij };
+module.exports = { zapytaj, sprawdz, zapomnij, ustawKluczApi };

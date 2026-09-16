@@ -37,7 +37,8 @@
       "mcp__bring__skladniki_przepisu",
       "mcp__bring__dopisz_z_przepisu",
       "mcp__bring__odhacz_skladnik",
-      "mcp__bring__wyczysc_przepis"
+      "mcp__bring__wyczysc_przepis",
+      "mcp__bring__sprawdz_wykluczenia"
     ],
     "deny": [
       "Bash",

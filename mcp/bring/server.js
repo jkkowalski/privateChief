@@ -15,6 +15,7 @@
 const B = require('./bring.js');
 const U = require('../../lib/uklad.js');
 const SKL = require('../../lib/skladniki.js');
+const ALERGENY = require('../../lib/alergeny.js');
 
 const PROTOCOL = '2025-06-18';
 const log = (msg) => process.stderr.write('[bring] ' + msg + '\n');
@@ -222,6 +223,18 @@ const TOOLS = [
       properties: { tydzien: TYDZIEN_ARG, przepis: PRZEPIS_ARG },
       required: ['przepis'], additionalProperties: false
     }
+  },
+  {
+    name: 'sprawdz_wykluczenia',
+    description: 'Sprawdza składniki przepisu (albo wszystkich przepisów tygodnia) deterministycznie pod wykluczenia z rodzina/domownicy.md — alergie, nietolerancje, diety. Uruchamiaj po zapisaniu każdego przepisu i przed pokazaniem planu: model potrafi wpisać orzechy do przepisu „bez orzechów", a to sito łapie nazwy niezależnie od modelu.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tydzien: TYDZIEN_ARG,
+        przepis: { type: 'string', description: 'Nazwa przepisu (wystarczy fragment). Pominięta = wszystkie przepisy tygodnia.' }
+      },
+      additionalProperties: false
+    }
   }
 ];
 
@@ -282,6 +295,42 @@ const HANDLERS = {
     const r = await zPrzepisem(args, (t, p) => SKL.wyczysc(t, p));
     if (typeof r === 'string') return r;
     return renderStan(r.w, r.tytul + '  [' + r.tydzien + ']: odhaczenia wyczyszczone.');
+  },
+
+  // Drugie sito za modelem (lib/alergeny.js) — to samo, które aplikacja pokazuje
+  // w przepisie i które wypisuje narzedzia/sprawdz.js.
+  sprawdz_wykluczenia: async (args) => {
+    const dekl = ALERGENY.deklaracje();
+    if (!dekl.length) {
+      return 'W rodzina/domownicy.md nie ma zadeklarowanych wykluczeń (linie „Alergie i nietolerancje:", '
+        + '„Dieta / ograniczenia:") — nie ma czego sprawdzać.';
+    }
+    const tydzien = biezacy(args.tydzien);
+    let lista = U.przepisyTygodnia(tydzien);
+    if (args.przepis) {
+      const z = SKL.znajdzPrzepis(tydzien, String(args.przepis));
+      if (z.blad) return z.blad;
+      lista = lista.filter((d) => d.slug === z.slug);
+    }
+
+    const linie = ['Wykluczenia domowników: ' + ALERGENY.opisDeklaracji(dekl), ''];
+    let ile = 0;
+    lista.forEach((d) => {
+      const doc = U.przepis('tydzien', d.slug, tydzien);
+      const traf = ALERGENY.trafienia(SKL.skladniki(doc.text), dekl);
+      if (!traf.length) return;
+      ile += traf.length;
+      linie.push(d.tytul + ':');
+      traf.forEach((t) => linie.push('  - ' + ALERGENY.opisTrafienia(t)));
+    });
+
+    if (!ile) {
+      linie.push('Nic nie znaleziono w ' + lista.length + ' przepisach [' + tydzien + ']. '
+        + 'Sito zna tylko nazwy z przepisów — skład produktów ze sklepu sprawdza człowiek.');
+    } else {
+      linie.push('', 'Trafień: ' + ile + '. Popraw te przepisy, zanim pokażesz plan rodzinie.');
+    }
+    return linie.join('\n');
   }
 };
 

@@ -26,6 +26,7 @@ const CZAT = require('./czat.js');
 const U = require('../lib/uklad.js');
 const KSIAZKA = require('../lib/ksiazka.js');
 const SKL = require('../lib/skladniki.js');
+const ALERGENY = require('../lib/alergeny.js');
 
 // Ustawiane raz przy starcie (patrz koniec pliku) — strony pytają o to synchronicznie.
 let CZAT_DOSTEPNY = false;
@@ -59,6 +60,8 @@ function loadConfig() {
 }
 
 const CONFIG = loadConfig();
+// Klucz API Anthropic (opcjonalny) — czat działa wtedy bez logowania Claude Code.
+CZAT.ustawKluczApi(CONFIG.claudeApiKey);
 const PORT = Number(process.env.PC_PORT || CONFIG.port || 8765);
 // PC_LIST nadpisuje liste Bring! (do testow na liscie prywatnej).
 const LISTA = process.env.PC_LIST || CONFIG.list || '';
@@ -770,6 +773,20 @@ function stronaPrzepis(doc) {
 
   // Zakupy robi się z tygodnia. Przepis w książce to wzorzec — nie wiadomo, na kiedy
   // i w ilu porcjach go ugotujecie, więc ptaszki i przycisk zakupów nie mają tu sensu.
+  // Drugie sito za modelem: wykluczenia z profilu sprawdzone deterministycznie na
+  // składnikach (lib/alergeny.js). Pokazujemy także „nic nie znaleziono" — brak informacji
+  // wyglądałby jak brak sprawdzenia, a rodzina ma wiedzieć, CO zostało sprawdzone.
+  const dekl = ALERGENY.deklaracje();
+  if (dekl.length) {
+    const traf = ALERGENY.trafienia(skl, dekl);
+    out.push(traf.length
+      ? '<div class="uwaga alarm"><b>Uwaga — składniki wykluczone w profilu:</b><br>'
+        + traf.map((t) => esc(ALERGENY.opisTrafienia(t))).join('<br>')
+        + '<br><small>Filtr zna tylko nazwy z przepisu — skład produktu ze sklepu sprawdź na etykiecie.</small></div>'
+      : '<p class="licznik" style="margin:0 0 12px">Wykluczenia sprawdzone: '
+        + esc(ALERGENY.opisDeklaracji(dekl)) + ' — nic nie znaleziono.</p>');
+  }
+
   const wTygodniu = doc.zrodlo !== 'ksiazka';
 
   if (skl.length) {
@@ -1201,6 +1218,11 @@ const CSS_CZAT = `
   border-radius:999px;padding:8px 13px;font-size:13.5px;cursor:pointer;text-align:left}
 .podpowiedzi button:active{border-color:var(--accent);color:var(--accent)}
 .czat-pusty{color:var(--muted);font-size:14px;line-height:1.55}
+.ai-info{margin:0 0 14px;padding:8px 12px;border:1px dashed var(--line);border-radius:var(--r-mala);
+  color:var(--muted);font-size:12.5px;line-height:1.45}
+/* Ostrzeżenie o wykluczeniach: ma się różnić od zwykłej uwagi, bo tu chodzi o alergię. */
+.uwaga.alarm{border-left-color:#c0392b;color:var(--text);background:rgba(192,57,43,.07)}
+.uwaga.alarm small{color:var(--muted)}
 
 /* Szeroki ekran: panel dokuje po prawej i zwęża stronę zamiast ją zasłaniać. */
 @media(min-width:900px){
@@ -1232,6 +1254,10 @@ function panelCzatu(dostepny) {
     + '<button id="czysc" title="Nowa rozmowa" aria-label="Nowa rozmowa">&#8635;</button>'
     + '<button id="zamknij" aria-label="Zamknij czat">&times;</button></div>'
     + '<div class="srodek" id="srodek">'
+    // Stała informacja, nie jednorazowy popup: do czatu zagląda dziecko albo gość, dla
+    // których „oczywiste" nie jest oczywiste. Widoczna zawsze, nie tylko w pustej rozmowie.
+    + '<p class="ai-info">Rozmawiasz z asystentem AI (Claude). Może się mylić — także co do '
+    + 'składników. Plan i zakupy zatwierdza człowiek.</p>'
     + '<div class="czat" id="czat"></div>'
     + '<div id="powitanie" class="czat-pusty">Zapytaj o cokolwiek z jadłospisu — mogę też '
     + 'zmienić plan albo dopisać coś do zakupów.'
@@ -1652,7 +1678,7 @@ CZAT.sprawdz().then((w) => {
     }
     process.stdout.write('\n  Na tym komputerze: http://localhost:' + PORT + '\n');
     process.stdout.write(w.ok
-      ? '  Czat: ' + w.wersja + '\n'
+      ? '  Czat: ' + w.wersja + (w.klucz ? ' (klucz API)' : ' (login Claude Code)') + '\n'
       : '  Czat NIEDOSTEPNY: ' + w.powod + '\n');
     process.stdout.write('  Zatrzymanie: Ctrl+C\n\n');
   });

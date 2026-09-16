@@ -15,9 +15,12 @@ const fs = require('fs');
 const path = require('path');
 
 const U = require('../lib/uklad.js');
+const SKL = require('../lib/skladniki.js');
+const ALERGENY = require('../lib/alergeny.js');
 
 const bledy = [];
 const ostrzezenia = [];
+const wykluczenia = [];
 const blad = (plik, tekst) => bledy.push(plik + ': ' + tekst);
 const ostrzez = (plik, tekst) => ostrzezenia.push(plik + ': ' + tekst);
 
@@ -96,6 +99,12 @@ function sprawdzPrzepis(plik, nazwa) {
       });
   });
   if (!ile && !zbiorcze) ostrzez(nazwa, 'nie znalazłem sekcji "## Składniki"');
+
+  // Wykluczenia z rodzina/domownicy.md sprawdzone na składnikach — to samo sito, które
+  // aplikacja pokazuje w przepisie. Tu, żeby dało się je złapać przed ugotowaniem.
+  ALERGENY.trafienia(SKL.skladniki(tresc)).forEach((t) => {
+    wykluczenia.push(nazwa + ': ' + ALERGENY.opisTrafienia(t));
+  });
   return { ile, zbiorcze };
 }
 
@@ -195,7 +204,13 @@ if (ostrzezenia.length) {
   console.log('\n  Do przejrzenia (' + ostrzezenia.length + '):');
   ostrzezenia.forEach((o) => console.log('    - ' + o));
 }
-if (!bledy.length && !ostrzezenia.length) console.log('\n  Wszystko zgodne z FORMAT.md.');
+// Osobno i na końcu, bo to jedyna rzecz tutaj, przez którą ktoś może wylądować w szpitalu.
+if (wykluczenia.length) {
+  console.log('\n  WYKLUCZENIA (' + wykluczenia.length + ') — składniki, których ktoś w domu nie może jeść:');
+  wykluczenia.forEach((w) => console.log('    - ' + w));
+  console.log('    (sprawdzane: ' + ALERGENY.opisDeklaracji() + ')');
+}
+if (!bledy.length && !ostrzezenia.length && !wykluczenia.length) console.log('\n  Wszystko zgodne z FORMAT.md.');
 console.log('');
 
-process.exitCode = bledy.length ? 1 : 0;
+process.exitCode = (bledy.length || wykluczenia.length) ? 1 : 0;

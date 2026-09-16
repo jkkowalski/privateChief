@@ -5,7 +5,7 @@ description: Prywatny szef kuchni rodziny — planuje jadłospisy, pisze pełne 
 
 # Rodzinny jadłospis
 
-**Wersja skilla: 2026-09-16a.** Gdy użytkownik pyta, jaką wersję skilla masz, podaj to oznaczenie.
+**Wersja skilla: 2026-09-16b.** Gdy użytkownik pyta, jaką wersję skilla masz, podaj to oznaczenie.
 Służy do sprawdzenia, czy kopia wgrana do Projektu w aplikacji Claude nie została w tyle
 za plikiem na dysku, który jest źródłem prawdy.
 
@@ -534,6 +534,17 @@ Gdy rodzina nie liczy kalorii, linię "Na porcję" pomiń w całości; gramatury
 
 Przepisy zapisane wcześniej (przed wprowadzeniem tej linii) uzupełniaj przy okazji, gdy
 danie wraca do rotacji. Nie przepisuj całej biblioteki naraz bez prośby użytkownika.
+
+**Po zapisaniu przepisów, a przed pokazaniem planu, uruchom `sprawdz_wykluczenia`**
+(narzędzie MCP; bez niego: `node <katalog kodu>/narzedzia/sprawdz.js` z katalogu domu).
+Sprawdza składniki wszystkich przepisów tygodnia pod alergie, nietolerancje i diety
+z `domownicy.md` — deterministycznie, niezależnie od Ciebie. Robisz to, bo model potrafi
+wpisać orzechy do przepisu „bez orzechów" i nie zauważyć; sito zauważy. Każde trafienie
+popraw w przepisie (zamiennik albo wariant dla tej osoby) i uruchom sprawdzenie ponownie.
+Trafienia ze spiżarni albo z produktów „bez laktozy"/„bezglutenowych" bywają fałszywe —
+wtedy nazwij składnik tak, żeby to było widać („napój owsiany bezglutenowy"), zamiast
+ignorować ostrzeżenie. Sito zna tylko nazwy z przepisu; skład produktu ze sklepu i tak
+sprawdza człowiek, i powiedz to rodzinie przy alergiach.
 
 ### 4. Lista zakupów
 
