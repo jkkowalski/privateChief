@@ -1,0 +1,23 @@
+# dane logowania do Bring! — zostają lokalnie
+mcp/bring/credentials.json
+
+# PIN i sekret aplikacji webowej — zostaja lokalnie
+web/config.json
+
+# Katalog roboczy aplikacji: stan odhaczonych skladnikow, cache katalogu nazw Bring!
+# oraz zapisana sesja (token). To stan dzialania i sekrety, nie dane rodziny —
+# przepisy, jadlospisy i ksiazka sa sledzone normalnie.
+dane/
+
+# Stare miejsce stanu odhaczen — przenosi sie do dane/ przy zmianie ukladu katalogow.
+# Wpis zostaje do tego czasu, zeby plik nie wpadl do repozytorium po drodze.
+web/stan-przepisow.json
+
+# Wskaznik na katalog domu (dane rodziny) — lokalny dla tego komputera.
+dom.txt
+
+# Gdyby ktos zalozyl dom w katalogu kodu (stary uklad): hasla i PIN nigdy do repozytorium.
+konfiguracja/
+
+# Ustawienia lokalne sesji Claude Code na tym komputerze.
+.claude/settings.local.json

@@ -1,0 +1,8 @@
+# Stan aplikacji: ptaszki przy skladnikach, cache katalogu Bring!, sesja.
+# To stan dzialania, nie tresc — nie ma czego wersjonowac.
+dane/
+
+# Haslo do Bring! i PIN aplikacji — nigdy do repozytorium.
+konfiguracja/
+
+*.tmp

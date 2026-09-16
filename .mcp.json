@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "bring": {
+      "command": "node",
+      "args": ["mcp/bring/server.js"]
+    }
+  }
+}
