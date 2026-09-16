@@ -56,33 +56,69 @@ function znajdzCli() {
 
 const CLI = znajdzCli();
 
-const KONTEKST = [
-  'Rozmawiasz przez aplikację domową PrivateChief z domownikiem, który trzyma telefon',
-  'w kuchni — być może w trakcie gotowania. Odpowiadaj po polsku, krótko i konkretnie,',
-  'zwykłym tekstem bez nagłówków i tabel; kilka zdań wystarczy.',
-  'Rozmówcą bywa dziecko albo gość, więc nie zakładaj wiedzy o plikach ani o tym projekcie.',
-  'Gdy prosi o zmianę w jadłospisie lub przepisie — wykonaj ją i powiedz jednym zdaniem,',
-  'co zmieniłeś. Gdy prosi o zakupy — dopisz do listy Bring! i powiedz, co doszło.',
-  'Nie pytaj o potwierdzenie przy drobiazgach; pytaj tylko wtedy, gdy bez odpowiedzi',
-  'zrobiłbyś coś nieodwracalnego albo wyraźnie wbrew profilowi rodziny (alergie, diety).'
-].join(' ');
+// Dwa tryby rozmowy, bo „czego brakuje do leczo" i „ułóż jadłospis na tydzień" to dwie
+// różne prace: pierwsza ma być tania i szybka, druga ma być zrobiona dobrze. Tryb jest
+// cechą SESJI, nie wiadomości — planowanie to wywiad na kilka tur i nie może w połowie
+// przeskoczyć na słabszy model.
+const KONTEKST = {
+  zwykly: [
+    'Rozmawiasz przez aplikację domową PrivateChief z domownikiem, który trzyma telefon',
+    'w kuchni — być może w trakcie gotowania. Odpowiadaj po polsku, krótko i konkretnie,',
+    'zwykłym tekstem bez nagłówków i tabel; kilka zdań wystarczy.',
+    'Rozmówcą bywa dziecko albo gość, więc nie zakładaj wiedzy o plikach ani o tym projekcie.',
+    'Gdy prosi o zmianę w jadłospisie lub przepisie — wykonaj ją i powiedz jednym zdaniem,',
+    'co zmieniłeś. Gdy prosi o zakupy — dopisz do listy Bring! i powiedz, co doszło.',
+    'Nie pytaj o potwierdzenie przy drobiazgach; pytaj tylko wtedy, gdy bez odpowiedzi',
+    'zrobiłbyś coś nieodwracalnego albo wyraźnie wbrew profilowi rodziny (alergie, diety).'
+  ].join(' '),
+  planowanie: [
+    'Rozmawiasz przez aplikację domową PrivateChief z domownikiem, który planuje jadłospis',
+    'na kolejny tydzień. To pełna sesja planowania według skilla: najpierw zapytaj o miniony',
+    'tydzień (co smakowało, sytość, czego zabrakło), potem ułóż plan. Odpowiadaj po polsku,',
+    'zwykłym tekstem bez tabel i nagłówków markdown — panel czatu ich nie renderuje, a ekran',
+    'to telefon. Propozycję planu zapisz od razu do pliku jadlospisy/<tydzień>/jadlospis.md',
+    'z polem "status": "propozycja" w nagłówku JSON (i przepisy do przepisy/), a w rozmowie',
+    'podaj tylko skrót: jedna linia na dzień, potem prośba o uwagi — domownik obejrzy plan',
+    'w aplikacji w zakładce Jadłospisy. Po akceptacji usuń pole status. Listy zakupów nie',
+    'wysyłaj do Bring! bez wyraźnego "wysyłaj". Po zapisaniu przepisów uruchom',
+    'sprawdz_wykluczenia i popraw trafienia, zanim poprosisz o akceptację.'
+  ].join(' ')
+};
+
+// Modele per tryb. Aliasy "sonnet"/"opus" rozwiązuje Claude Code na to, co konto ma
+// dostępne; pełne identyfikatory (np. claude-sonnet-5) też działają. Ustawia je aplikacja
+// z konfiguracja/web.json (claudeModel, claudeModelPlanowanie).
+const MODELE = { zwykly: 'sonnet', planowanie: 'opus' };
+function ustawModele(zwykly, planowanie) {
+  if (zwykly) MODELE.zwykly = String(zwykly);
+  if (planowanie) MODELE.planowanie = String(planowanie);
+}
+
+// Wykrywanie planowania z treści działa tylko na PIERWSZĄ wiadomość nowej rozmowy — potem
+// tryb jest już własnością sesji. Przycisk w aplikacji ustawia tryb wprost i jest drogą
+// główną; to jest siatka na tych, którzy po prostu napiszą „ułóż jadłospis".
+function wykryjPlanowanie(tekst) {
+  const n = String(tekst || '').toLowerCase()
+    .replace(/ł/g, 'l').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return /jadlospis|zaplanuj|zaplanowac|ulo(z|zyc)\s.*(tydzie|tygod)|plan(uj|u)?\s.*(tydzie|tygod)|menu na (tydzie|tygod)/.test(n);
+}
 
 // ---------------------------------------------------------------- sesje
 
 // Jedno urządzenie = jedna rozmowa. Sesje trzymamy w pamięci; restart serwera
 // zaczyna rozmowy od nowa, co dla czatu w kuchni jest całkowicie w porządku.
-const sesje = new Map();          // idUrzadzenia -> { sessionId, kiedy }
+const sesje = new Map();          // idUrzadzenia -> { sessionId, tryb, kiedy }
 const GODZINA = 3600 * 1000;
 
 function sesja(id) {
   const s = sesje.get(id);
   if (!s) return null;
   if (Date.now() - s.kiedy > 12 * GODZINA) { sesje.delete(id); return null; }
-  return s.sessionId;
+  return s;
 }
 
-function zapamietaj(id, sessionId) {
-  if (sessionId) sesje.set(id, { sessionId, kiedy: Date.now() });
+function zapamietaj(id, sessionId, tryb) {
+  if (sessionId) sesje.set(id, { sessionId, tryb: tryb || 'zwykly', kiedy: Date.now() });
 }
 
 function zapomnij(id) {
@@ -151,23 +187,32 @@ function poKolei(fn) {
 
 // ---------------------------------------------------------------- wywołanie CLI
 
-function wywolaj(wiadomosc, sessionId) {
+// Argumenty CLI osobno, żeby dało się je sprawdzić w teście bez uruchamiania Claude.
+function argumenty(tryb, sessionId) {
+  const t = KONTEKST[tryb] ? tryb : 'zwykly';
+  const args = [
+    '-p',
+    '--output-format', 'json',
+    '--settings', USTAWIENIA,
+    // Serwer Bring! wczytujemy wprost z .mcp.json. Zatwierdzenie serwerów projektu
+    // zapisuje się per katalog po kliknięciu w sesji interaktywnej, a tryb -p nie ma
+    // jak o nie zapytać — bez tej flagi czat po cichu zostałby bez listy zakupów.
+    '--mcp-config', path.join(ROOT, '.mcp.json'),
+    '--permission-mode', 'acceptEdits',
+    // Model podajemy także przy wznowieniu: sesja planowania ma zostać na swoim modelu.
+    '--model', MODELE[t],
+    '--append-system-prompt', KONTEKST[t]
+  ];
+  if (sessionId) args.push('--resume', sessionId);
+  return args;
+}
+
+function wywolaj(wiadomosc, sessionId, tryb) {
   return new Promise((resolve) => {
     // Treść idzie przez wejście standardowe, a nie argumentem. Na Windowsie argument
     // ze spacjami potrafi zostać rozbity przez powłokę — pierwsza próba dostarczyła
     // z pytania "Co jest zaplanowane na środę" samo "Co".
-    const args = [
-      '-p',
-      '--output-format', 'json',
-      '--settings', USTAWIENIA,
-      // Serwer Bring! wczytujemy wprost z .mcp.json. Zatwierdzenie serwerów projektu
-      // zapisuje się per katalog po kliknięciu w sesji interaktywnej, a tryb -p nie ma
-      // jak o nie zapytać — bez tej flagi czat po cichu zostałby bez listy zakupów.
-      '--mcp-config', path.join(ROOT, '.mcp.json'),
-      '--permission-mode', 'acceptEdits',
-      '--append-system-prompt', KONTEKST
-    ];
-    if (sessionId) args.push('--resume', sessionId);
+    const args = argumenty(tryb, sessionId);
 
     // Bez powłoki — CLI jest ścieżką do pliku wykonywalnego, a cmd tylko psułby
     // cudzysłowy w argumentach (dotyczy to też --append-system-prompt).
@@ -212,7 +257,7 @@ function wywolaj(wiadomosc, sessionId) {
 
 // ---------------------------------------------------------------- API modułu
 
-function zapytaj(idUrzadzenia, wiadomosc) {
+function zapytaj(idUrzadzenia, wiadomosc, trybZadany) {
   return poKolei(async () => {
     const tresc = String(wiadomosc || '').trim();
     if (!tresc) return { blad: 'Pusta wiadomość.' };
@@ -222,12 +267,18 @@ function zapytaj(idUrzadzenia, wiadomosc) {
     // z góry — nieudana tura niczego nie zmienia, więc nie ma czego zapisywać.
     const zastane = await zmienionePliki();
 
-    const w = await wywolaj(tresc, sesja(idUrzadzenia));
+    // Tryb należy do sesji: pierwsza wiadomość go ustala (przycisk w aplikacji albo
+    // wykrycie z treści), kolejne go dziedziczą aż do „Nowej rozmowy".
+    const s = sesja(idUrzadzenia);
+    const tryb = s ? s.tryb
+      : (trybZadany === 'planowanie' || wykryjPlanowanie(tresc)) ? 'planowanie' : 'zwykly';
+
+    const w = await wywolaj(tresc, s ? s.sessionId : null, tryb);
     if (w.blad) return { blad: w.blad };
 
-    zapamietaj(idUrzadzenia, w.sessionId);
+    zapamietaj(idUrzadzenia, w.sessionId, tryb);
     const moje = await zapiszZmiany(tresc, zastane);
-    return { tekst: w.tekst, pliki: moje, ms: w.ms };
+    return { tekst: w.tekst, pliki: moje, ms: w.ms, tryb, model: MODELE[tryb] };
   });
 }
 
@@ -247,4 +298,4 @@ function sprawdz() {
   });
 }
 
-module.exports = { zapytaj, sprawdz, zapomnij, ustawKluczApi };
+module.exports = { zapytaj, sprawdz, zapomnij, ustawKluczApi, ustawModele, wykryjPlanowanie, argumenty, MODELE };

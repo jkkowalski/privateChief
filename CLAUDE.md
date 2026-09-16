@@ -108,6 +108,17 @@ to `git revert <commit>` z komputera.
 
 Jedno urządzenie = jedna rozmowa (ciasteczko `pc_dev`), wywołania idą pojedynczo.
 
+**Dwa tryby rozmowy, dwa modele** (`czat.js`: `KONTEKST`, `MODELE`): *zwykły* — pytania
+z kuchni, alias `sonnet`; *planowanie* — cała sesja układania tygodnia, alias `opus`.
+Tryb jest cechą **sesji**, nie wiadomości: ustala go pierwsza wiadomość (przycisk
+„Zaplanuj następny tydzień" przekazuje `tryb: 'planowanie'`, poza tym `wykryjPlanowanie`
+patrzy na treść) i dziedziczą go kolejne tury, bo wywiad o miniony tydzień nie może
+w połowie przeskoczyć na słabszy model. `--model` idzie też przy `--resume`. Modele
+z `konfiguracja/web.json` (`claudeModel`, `claudeModelPlanowanie`). Kontekst planowania
+każe zapisać plan od razu z `"status": "propozycja"` — panel nie renderuje tabel, więc
+plan ogląda się w zakładce Jadłospisy, a zatwierdza w czacie. `argumenty(tryb, sessionId)`
+jest wyeksportowane po to, żeby test sprawdzał argumenty CLI bez uruchamiania Claude.
+
 ## Serwer MCP Bring!
 
 Podpięty przez `.mcp.json` **w domu** (pisze go `dom.js`, z `PC_DOM` w `env`). Aplikacja

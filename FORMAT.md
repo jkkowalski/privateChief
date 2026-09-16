@@ -129,6 +129,7 @@ Nagłówek:
 |---|---|---|
 | `od`, `do` | data `RRRR-MM-DD` | zakres planu |
 | `osoby` | lista tekstów | kto je w tym tygodniu |
+| `status` | tekst | `propozycja` — plan zapisany przez czat w aplikacji przed akceptacją rodziny; aplikacja oznacza go w widoku, a po zatwierdzeniu pole znika |
 
 Tabela posiłków ma **stałe kolumny**, z `Przepis` zawierającym nazwę pliku z
 `przepisy/` **tego tygodnia**, bez rozszerzenia (puste, gdy przepisu nie ma):

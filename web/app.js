@@ -62,6 +62,8 @@ function loadConfig() {
 const CONFIG = loadConfig();
 // Klucz API Anthropic (opcjonalny) — czat działa wtedy bez logowania Claude Code.
 CZAT.ustawKluczApi(CONFIG.claudeApiKey);
+// Model czatu kuchennego i model planowania tygodnia (aliasy albo pełne identyfikatory).
+CZAT.ustawModele(CONFIG.claudeModel, CONFIG.claudeModelPlanowanie);
 const PORT = Number(process.env.PC_PORT || CONFIG.port || 8765);
 // PC_LIST nadpisuje liste Bring! (do testow na liscie prywatnej).
 const LISTA = process.env.PC_LIST || CONFIG.list || '';
@@ -597,7 +599,7 @@ function stronaDzis() {
   const przyszle = wiersze.filter((r) => r.date && (+r.date[2] > mm || (+r.date[2] === mm && +r.date[1] > dd)));
   if (!przyszle.length) {
     return tytul + '<div class="uwaga">Plan <b>' + esc(plan.tytul) + '</b> już się skończył. '
-      + 'Czas poprosić Claude\'a o kolejny tydzień.</div>' + stopkaPlanu(plan);
+      + 'Czas na kolejny tydzień.</div>' + przyciskPlanowania(U.tygodnie()) + stopkaPlanu(plan);
   }
   const pierwszy = przyszle[0].dzien;
   const grupa = przyszle.filter((r) => r.dzien === pierwszy);
@@ -645,6 +647,13 @@ function stronaJadlospis(doc) {
     + '<p class="pod">' + wiersze.length + ' ' + odmiana(wiersze.length, 'posiłek', 'posiłki', 'posiłków')
     + ' w ' + dni.length + ' ' + odmiana(dni.length, 'dniu', 'dniach', 'dniach') + '</p></div>'];
 
+  // Plan zapisany przez czat przed akceptacją: widać go tu w całości, ale z jasnym
+  // znacznikiem, że to propozycja — zatwierdza się ją w rozmowie, nie samym otwarciem.
+  if (doc.dane.status === 'propozycja') {
+    out.push('<div class="uwaga">To jest <b>propozycja</b> — do zatwierdzenia w czacie. '
+      + 'Napisz tam uwagi albo „zatwierdzam".</div>');
+  }
+
   dni.forEach((g) => {
     const dzis = g.date && +g.date[1] === dd && +g.date[2] === mm;
     out.push('<div class="dzien' + (dzis ? ' dzis' : '') + '"><h2>' + esc(g.dzien) + '</h2>'
@@ -676,11 +685,30 @@ function stronaJadlospis(doc) {
   return out.join('');
 }
 
+// Przycisk planowania: otwiera nową rozmowę w czacie w trybie planowania (mocniejszy
+// model na całą sesję). Prośba niesie daty następnego tygodnia, żeby model ich nie
+// zgadywał, i nazwę poprzedniego — od pytań o niego skill zaczyna.
+function przyciskPlanowania(docs) {
+  if (!CZAT_DOSTEPNY) return '';
+  const ostatni = docs.length ? docs[docs.length - 1] : null;
+  let prosba = 'Ułóż jadłospis na następny tydzień. Zacznij od pytań o miniony tydzień, jak każe skill.';
+  if (ostatni && /^\d{4}-\d{2}-\d{2}$/.test(ostatni.do)) {
+    const od = new Date(ostatni.do + 'T12:00:00'); od.setDate(od.getDate() + 1);
+    const doo = new Date(od); doo.setDate(doo.getDate() + 6);
+    const iso = (x) => x.toISOString().slice(0, 10);
+    prosba = 'Ułóż jadłospis na następny tydzień: od ' + iso(od) + ' do ' + iso(doo)
+      + '. Zacznij od pytań o miniony tydzień (' + ostatni.slug + '), jak każe skill.';
+  }
+  return '<button class="btn" id="zaplanuj" data-prosba="' + esc(prosba) + '" style="margin-bottom:16px">'
+    + 'Zaplanuj następny tydzień</button>';
+}
+
 function stronaJadlospisy() {
   const docs = U.tygodnie();
-  if (!docs.length) return pusto('\u{1F4C5}', 'Nie ma jeszcze żadnego jadłospisu.');
-  return '<ul class="spis">' + docs.slice().reverse().map((d) =>
-    '<li><a href="/jadlospis/' + encodeURIComponent(d.slug) + '">' + esc(d.tytul) + '</a></li>'
+  if (!docs.length) return przyciskPlanowania(docs) + pusto('\u{1F4C5}', 'Nie ma jeszcze żadnego jadłospisu.');
+  return przyciskPlanowania(docs) + '<ul class="spis">' + docs.slice().reverse().map((d) =>
+    '<li><a href="/jadlospis/' + encodeURIComponent(d.slug) + '">' + esc(d.tytul)
+    + (d.status === 'propozycja' ? ' <span class="znacznik">propozycja</span>' : '') + '</a></li>'
   ).join('') + '</ul>';
 }
 
@@ -1184,6 +1212,8 @@ const CSS_CZAT = `
 .panel .gora .uchwyt{position:absolute;top:7px;left:50%;transform:translateX(-50%);
   width:38px;height:4px;border-radius:99px;background:var(--line)}
 .panel .gora b{flex:1;font-size:15px;font-weight:650}
+.panel .gora .tryb{font-size:11.5px;color:var(--accent);border:1px solid var(--accent);border-radius:999px;
+  padding:2px 8px;white-space:nowrap}
 .panel .gora button{background:transparent;border:0;color:var(--muted);font-size:24px;
   line-height:1;padding:2px 6px;cursor:pointer}
 .panel .srodek{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:16px}
@@ -1250,7 +1280,7 @@ function panelCzatu(dostepny) {
   return '<button class="fab" id="fab" aria-label="Otwórz czat">\u{1F4AC}</button>'
     + '<div class="zaslona" id="zaslona"></div>'
     + '<aside class="panel" id="panel" aria-label="Czat">'
-    + '<div class="gora"><span class="uchwyt"></span><b>Czat</b>'
+    + '<div class="gora"><span class="uchwyt"></span><b>Czat</b><span class="tryb" id="tryb-czatu" hidden></span>'
     + '<button id="czysc" title="Nowa rozmowa" aria-label="Nowa rozmowa">&#8635;</button>'
     + '<button id="zamknij" aria-label="Zamknij czat">&times;</button></div>'
     + '<div class="srodek" id="srodek">'
@@ -1347,18 +1377,32 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
     try{sessionStorage.setItem(KL,JSON.stringify(hist.slice(-40)))}catch(e){}
   }
 
-  czysc.addEventListener('click',function(){
+  // Plakietka trybu: widoczna tylko przy planowaniu, bo to wtedy chodzi mocniejszy
+  // (droższy) model i domownik ma to widzieć. Zapamiętana w sesji karty, bo sesja
+  // czatu po stronie serwera przeżywa przeładowanie strony.
+  var plakietka=document.getElementById('tryb-czatu');
+  function pokazTryb(tryb,model){
+    if(!plakietka)return;
+    var plan=tryb==='planowanie';
+    plakietka.hidden=!plan;
+    plakietka.textContent=plan?'planowanie · '+(model||''):'';
+    try{if(plan)sessionStorage.setItem(KL+':tryb',model||'');else sessionStorage.removeItem(KL+':tryb')}catch(e){}
+  }
+  try{var zt=sessionStorage.getItem(KL+':tryb');if(zt!==null)pokazTryb('planowanie',zt)}catch(e){}
+
+  function nowaRozmowa(){
     hist=[];czat.innerHTML='';
     if(powitanie)powitanie.hidden=false;
     try{sessionStorage.removeItem(KL)}catch(e){}
-    fetch('/api/czat/nowa',{method:'POST'});
-    toast('Zaczynamy od nowa');
-  });
+    pokazTryb('zwykly');
+    return fetch('/api/czat/nowa',{method:'POST'}).catch(function(){});
+  }
+  czysc.addEventListener('click',function(){nowaRozmowa();toast('Zaczynamy od nowa')});
 
   function rosnij(){pole.style.height='auto';pole.style.height=Math.min(pole.scrollHeight,110)+'px'}
   pole.addEventListener('input',rosnij);
 
-  function wyslij(tekst){
+  function wyslij(tekst,tryb){
     if(zajety||!tekst.trim())return;
     zajety=true;przycisk.disabled=true;
     dodaj('ja',tekst);zapisz('ja',tekst);
@@ -1368,10 +1412,11 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
     czeka.className='mysli';czeka.innerHTML='<i></i><i></i><i></i>';
     czat.appendChild(czeka);srodek.scrollTop=srodek.scrollHeight;
 
-    post('/api/czat',{wiadomosc:tekst}).then(function(d){
+    post('/api/czat',{wiadomosc:tekst,tryb:tryb||''}).then(function(d){
       czeka.remove();
       if(d.blad){dodaj('blad',d.blad);zapisz('blad',d.blad);}
       else{
+        pokazTryb(d.tryb,d.model);
         dodaj('on',d.tekst,d.pliki);zapisz('on',d.tekst,d.pliki);
         // Zmiana w plikach albo w zakupach dotyczy tego, co widać pod spodem.
         if(d.pliki&&d.pliki.length)toast('Zmieniono pliki — odśwież widok, żeby zobaczyć');
@@ -1388,6 +1433,15 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
   });
   podp.addEventListener('click',function(e){
     if(e.target.tagName==='BUTTON')wyslij(e.target.textContent);
+  });
+
+  // „Zaplanuj następny tydzień" (lista jadłospisów, koniec planu): nowa rozmowa w trybie
+  // planowania — mocniejszy model na całą sesję — z gotową pierwszą prośbą z datami.
+  var zaplanuj=document.getElementById('zaplanuj');
+  if(zaplanuj)zaplanuj.addEventListener('click',function(){
+    var prosba=zaplanuj.dataset.prosba||'Ułóż jadłospis na następny tydzień.';
+    zaplanuj.disabled=true;
+    nowaRozmowa().then(function(){otworz();wyslij(prosba,'planowanie');zaplanuj.disabled=false;});
   });
 
   // Po przejściu na inną stronę wracamy do otwartego panelu tylko w trybie zadokowanym;
@@ -1626,7 +1680,9 @@ async function router(req, res) {
     try {
       const dane = JSON.parse((await czytajBody(req)) || '{}');
       const id = ciasteczka(req).pc_dev || 'wspolne';
-      const w = await CZAT.zapytaj(id, dane.wiadomosc);
+      // Tryb z przycisku „Zaplanuj tydzień"; poza tym czat sam wykrywa planowanie
+      // z pierwszej wiadomości nowej rozmowy.
+      const w = await CZAT.zapytaj(id, dane.wiadomosc, dane.tryb === 'planowanie' ? 'planowanie' : undefined);
       return json(res, w);
     } catch (e) {
       return json(res, { blad: e.message }, 500);
@@ -1678,7 +1734,8 @@ CZAT.sprawdz().then((w) => {
     }
     process.stdout.write('\n  Na tym komputerze: http://localhost:' + PORT + '\n');
     process.stdout.write(w.ok
-      ? '  Czat: ' + w.wersja + (w.klucz ? ' (klucz API)' : ' (login Claude Code)') + '\n'
+      ? '  Czat: ' + w.wersja + (w.klucz ? ' (klucz API)' : ' (login Claude Code)')
+        + ' — model: ' + CZAT.MODELE.zwykly + ', planowanie: ' + CZAT.MODELE.planowanie + '\n'
       : '  Czat NIEDOSTEPNY: ' + w.powod + '\n');
     process.stdout.write('  Zatrzymanie: Ctrl+C\n\n');
   });
