@@ -1212,8 +1212,9 @@ const CSS_CZAT = `
 .panel .gora .uchwyt{position:absolute;top:7px;left:50%;transform:translateX(-50%);
   width:38px;height:4px;border-radius:99px;background:var(--line)}
 .panel .gora b{flex:1;font-size:15px;font-weight:650}
-.panel .gora .tryb{font-size:11.5px;color:var(--accent);border:1px solid var(--accent);border-radius:999px;
-  padding:2px 8px;white-space:nowrap}
+.panel .gora .tryb{font-size:11.5px;line-height:1.2;color:var(--muted);border:1px solid var(--line);
+  border-radius:999px;padding:3px 9px;white-space:nowrap;cursor:pointer;background:transparent}
+.panel .gora .tryb.plan{color:var(--accent);border-color:var(--accent);font-weight:600}
 .panel .gora button{background:transparent;border:0;color:var(--muted);font-size:24px;
   line-height:1;padding:2px 6px;cursor:pointer}
 .panel .srodek{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:16px}
@@ -1280,7 +1281,12 @@ function panelCzatu(dostepny) {
   return '<button class="fab" id="fab" aria-label="Otwórz czat">\u{1F4AC}</button>'
     + '<div class="zaslona" id="zaslona"></div>'
     + '<aside class="panel" id="panel" aria-label="Czat">'
-    + '<div class="gora"><span class="uchwyt"></span><b>Czat</b><span class="tryb" id="tryb-czatu" hidden></span>'
+    // Plakietka trybu widoczna zawsze (zwykły · sonnet / planowanie · opus) i klikalna:
+    // przełączenie trybu zaczyna nową rozmowę, bo tryb jest własnością sesji.
+    + '<div class="gora"><span class="uchwyt"></span><b>Czat</b>'
+    + '<button type="button" class="tryb" id="tryb-czatu"'
+    + ' data-zwykly="' + esc(CZAT.MODELE.zwykly) + '" data-planowanie="' + esc(CZAT.MODELE.planowanie) + '"'
+    + ' title="Przełącz tryb (zaczyna nową rozmowę)"></button>'
     + '<button id="czysc" title="Nowa rozmowa" aria-label="Nowa rozmowa">&#8635;</button>'
     + '<button id="zamknij" aria-label="Zamknij czat">&times;</button></div>'
     + '<div class="srodek" id="srodek">'
@@ -1380,24 +1386,41 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
   // Plakietka trybu: widoczna tylko przy planowaniu, bo to wtedy chodzi mocniejszy
   // (droższy) model i domownik ma to widzieć. Zapamiętana w sesji karty, bo sesja
   // czatu po stronie serwera przeżywa przeładowanie strony.
-  var plakietka=document.getElementById('tryb-czatu');
+  // Plakietka trybu widoczna zawsze: „zwykły · sonnet" albo „planowanie · opus". Nazwy
+  // modeli przychodzą z serwera w data-*, więc widać je od razu, nie dopiero po pierwszej
+  // odpowiedzi (planowanie na mocnym modelu potrafi myśleć minutę, zanim coś powie).
+  // Stan trzymany w sesji karty, bo rozmowa po stronie serwera przeżywa przeładowanie.
+  var plakietka=document.getElementById('tryb-czatu'), trybNastepny='';
   function pokazTryb(tryb,model){
     if(!plakietka)return;
     var plan=tryb==='planowanie';
-    plakietka.hidden=!plan;
-    plakietka.textContent=plan?'planowanie · '+(model||''):'';
-    try{if(plan)sessionStorage.setItem(KL+':tryb',model||'');else sessionStorage.removeItem(KL+':tryb')}catch(e){}
+    var nazwa=model||(plan?plakietka.dataset.planowanie:plakietka.dataset.zwykly)||'';
+    plakietka.textContent=(plan?'planowanie':'zwykły')+(nazwa?' · '+nazwa:'');
+    plakietka.classList.toggle('plan',plan);
+    try{if(plan)sessionStorage.setItem(KL+':tryb',nazwa);else sessionStorage.removeItem(KL+':tryb')}catch(e){}
   }
-  try{var zt=sessionStorage.getItem(KL+':tryb');if(zt!==null)pokazTryb('planowanie',zt)}catch(e){}
+  (function(){var zt=null;try{zt=sessionStorage.getItem(KL+':tryb')}catch(e){}
+    pokazTryb(zt!==null?'planowanie':'zwykly',zt||'')})();
 
-  function nowaRozmowa(){
+  // Tryb należy do rozmowy, więc zmiana trybu = nowa rozmowa. Tryb „na następną
+  // wiadomość" pamiętamy tutaj, bo serwer dowie się o nim dopiero przy wysyłce.
+  function nowaRozmowa(tryb){
     hist=[];czat.innerHTML='';
     if(powitanie)powitanie.hidden=false;
     try{sessionStorage.removeItem(KL)}catch(e){}
-    pokazTryb('zwykly');
+    trybNastepny=tryb==='planowanie'?'planowanie':'';
+    pokazTryb(trybNastepny||'zwykly');
     return fetch('/api/czat/nowa',{method:'POST'}).catch(function(){});
   }
-  czysc.addEventListener('click',function(){nowaRozmowa();toast('Zaczynamy od nowa')});
+  czysc.addEventListener('click',function(){nowaRozmowa();toast('Zaczynamy od nowa — tryb zwykły')});
+  if(plakietka)plakietka.addEventListener('click',function(){
+    var naPlan=!plakietka.classList.contains('plan');
+    if(!confirm(naPlan
+      ?'Zacząć nową rozmowę w trybie planowania? Chodzi wtedy mocniejszy model ('+(plakietka.dataset.planowanie||'')+').'
+      :'Wrócić do trybu zwykłego? To zaczyna nową rozmowę; obecna przepadnie.'))return;
+    nowaRozmowa(naPlan?'planowanie':'');
+    toast(naPlan?'Nowa rozmowa: planowanie':'Nowa rozmowa: tryb zwykły');
+  });
 
   function rosnij(){pole.style.height='auto';pole.style.height=Math.min(pole.scrollHeight,110)+'px'}
   pole.addEventListener('input',rosnij);
@@ -1412,7 +1435,12 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
     czeka.className='mysli';czeka.innerHTML='<i></i><i></i><i></i>';
     czat.appendChild(czeka);srodek.scrollTop=srodek.scrollHeight;
 
-    post('/api/czat',{wiadomosc:tekst,tryb:tryb||''}).then(function(d){
+    // Tryb z przycisku albo ustawiony plakietką na tę rozmowę; plakietka od razu,
+    // nie dopiero po odpowiedzi.
+    var t=tryb||trybNastepny;trybNastepny='';
+    if(t==='planowanie')pokazTryb('planowanie');
+
+    post('/api/czat',{wiadomosc:tekst,tryb:t||''}).then(function(d){
       czeka.remove();
       if(d.blad){dodaj('blad',d.blad);zapisz('blad',d.blad);}
       else{
@@ -1441,7 +1469,7 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
   if(zaplanuj)zaplanuj.addEventListener('click',function(){
     var prosba=zaplanuj.dataset.prosba||'Ułóż jadłospis na następny tydzień.';
     zaplanuj.disabled=true;
-    nowaRozmowa().then(function(){otworz();wyslij(prosba,'planowanie');zaplanuj.disabled=false;});
+    nowaRozmowa('planowanie').then(function(){otworz();wyslij(prosba,'planowanie');zaplanuj.disabled=false;});
   });
 
   // Po przejściu na inną stronę wracamy do otwartego panelu tylko w trybie zadokowanym;
