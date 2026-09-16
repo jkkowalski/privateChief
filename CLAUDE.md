@@ -110,10 +110,15 @@ Jedno urządzenie = jedna rozmowa (ciasteczko `pc_dev`), wywołania idą pojedyn
 
 **Dwa tryby rozmowy, dwa modele** (`czat.js`: `KONTEKST`, `MODELE`): *zwykły* — pytania
 z kuchni, alias `sonnet`; *planowanie* — cała sesja układania tygodnia, alias `opus`.
-Tryb jest cechą **sesji**, nie wiadomości: ustala go pierwsza wiadomość (przycisk
-„Zaplanuj następny tydzień" przekazuje `tryb: 'planowanie'`, poza tym `wykryjPlanowanie`
-patrzy na treść) i dziedziczą go kolejne tury, bo wywiad o miniony tydzień nie może
-w połowie przeskoczyć na słabszy model. `--model` idzie też przy `--resume`. Modele
+Tryb jest cechą **sesji**, nie wiadomości: ustala go pierwsza wiadomość i dziedziczą go
+kolejne tury, bo wywiad o miniony tydzień nie może w połowie przeskoczyć na słabszy
+model. Źródła trybu, w tej kolejności: przycisk „Zaplanuj następny tydzień"
+(`tryb: 'planowanie'`), jawny wybór w nagłówku panelu (dwa przyciski, aktywny
+podświetlony; `'zwykly'` wybrany jawnie wygrywa z wykrywaniem), a gdy nikt nic nie
+wybrał — `wykryjPlanowanie` na pierwszej wiadomości (ten sam `WZORZEC_PLANOWANIA` jedzie
+do przeglądarki, żeby podświetlić tryb już przy wysyłce). Zmiana trybu w trakcie rozmowy
+= nowa rozmowa; ↻ zaczyna od nowa w tym samym trybie. `--model` idzie też przy
+`--resume`. Modele
 z `konfiguracja/web.json` (`claudeModel`, `claudeModelPlanowanie`). Kontekst planowania
 każe zapisać plan od razu z `"status": "propozycja"` — panel nie renderuje tabel, więc
 plan ogląda się w zakładce Jadłospisy, a zatwierdza w czacie. `argumenty(tryb, sessionId)`

@@ -97,10 +97,13 @@ function ustawModele(zwykly, planowanie) {
 // Wykrywanie planowania z treści działa tylko na PIERWSZĄ wiadomość nowej rozmowy — potem
 // tryb jest już własnością sesji. Przycisk w aplikacji ustawia tryb wprost i jest drogą
 // główną; to jest siatka na tych, którzy po prostu napiszą „ułóż jadłospis".
+// Wzorzec jest eksportowany, bo ten sam test robi też przeglądarka — żeby podświetlić
+// tryb planowania od razu przy wysyłce, a nie dopiero po odpowiedzi modelu.
+const WZORZEC_PLANOWANIA = /jadlospis|zaplanuj|zaplanowac|ulo(z|zyc)\s.*(tydzie|tygod)|plan(uj|u)?\s.*(tydzie|tygod)|menu na (tydzie|tygod)/;
 function wykryjPlanowanie(tekst) {
   const n = String(tekst || '').toLowerCase()
     .replace(/ł/g, 'l').normalize('NFD').replace(/[̀-ͯ]/g, '');
-  return /jadlospis|zaplanuj|zaplanowac|ulo(z|zyc)\s.*(tydzie|tygod)|plan(uj|u)?\s.*(tydzie|tygod)|menu na (tydzie|tygod)/.test(n);
+  return WZORZEC_PLANOWANIA.test(n);
 }
 
 // ---------------------------------------------------------------- sesje
@@ -270,8 +273,12 @@ function zapytaj(idUrzadzenia, wiadomosc, trybZadany) {
     // Tryb należy do sesji: pierwsza wiadomość go ustala (przycisk w aplikacji albo
     // wykrycie z treści), kolejne go dziedziczą aż do „Nowej rozmowy".
     const s = sesja(idUrzadzenia);
+    // Wybór jawny (przycisk albo przełącznik w nagłówku) ma pierwszeństwo przed
+    // wykrywaniem z treści — kto kliknął „zwykły", ten chciał zwykły.
     const tryb = s ? s.tryb
-      : (trybZadany === 'planowanie' || wykryjPlanowanie(tresc)) ? 'planowanie' : 'zwykly';
+      : trybZadany === 'planowanie' ? 'planowanie'
+        : trybZadany === 'zwykly' ? 'zwykly'
+          : wykryjPlanowanie(tresc) ? 'planowanie' : 'zwykly';
 
     const w = await wywolaj(tresc, s ? s.sessionId : null, tryb);
     if (w.blad) return { blad: w.blad };
@@ -298,4 +305,4 @@ function sprawdz() {
   });
 }
 
-module.exports = { zapytaj, sprawdz, zapomnij, ustawKluczApi, ustawModele, wykryjPlanowanie, argumenty, MODELE };
+module.exports = { zapytaj, sprawdz, zapomnij, ustawKluczApi, ustawModele, wykryjPlanowanie, WZORZEC_PLANOWANIA, argumenty, MODELE };

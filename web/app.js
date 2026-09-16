@@ -1212,9 +1212,12 @@ const CSS_CZAT = `
 .panel .gora .uchwyt{position:absolute;top:7px;left:50%;transform:translateX(-50%);
   width:38px;height:4px;border-radius:99px;background:var(--line)}
 .panel .gora b{flex:1;font-size:15px;font-weight:650}
-.panel .gora .tryb{font-size:11.5px;line-height:1.2;color:var(--muted);border:1px solid var(--line);
-  border-radius:999px;padding:3px 9px;white-space:nowrap;cursor:pointer;background:transparent}
-.panel .gora .tryb.plan{color:var(--accent);border-color:var(--accent);font-weight:600}
+.panel .gora .tryby{display:flex;flex:0 0 auto;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.panel .gora .tryby button{font-size:11.5px;line-height:1.2;color:var(--muted);padding:5px 9px;border:0;
+  background:transparent;cursor:pointer;white-space:nowrap}
+.panel .gora .tryby button.on{background:var(--accent-bg);color:var(--accent);font-weight:650}
+.panel .gora .tryby small{font-size:inherit}
+@media (max-width:420px){.panel .gora .tryby small{display:none}}
 .panel .gora button{background:transparent;border:0;color:var(--muted);font-size:24px;
   line-height:1;padding:2px 6px;cursor:pointer}
 .panel .srodek{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:16px}
@@ -1281,12 +1284,17 @@ function panelCzatu(dostepny) {
   return '<button class="fab" id="fab" aria-label="Otwórz czat">\u{1F4AC}</button>'
     + '<div class="zaslona" id="zaslona"></div>'
     + '<aside class="panel" id="panel" aria-label="Czat">'
-    // Plakietka trybu widoczna zawsze (zwykły · sonnet / planowanie · opus) i klikalna:
-    // przełączenie trybu zaczyna nową rozmowę, bo tryb jest własnością sesji.
+    // Dwa tryby w nagłówku, aktywny podświetlony. Zmiana trybu w trakcie rozmowy zaczyna
+    // nową (tryb jest własnością sesji); ↻ zaczyna od nowa w tym samym trybie. Wzorzec
+    // wykrywania planowania idzie do przeglądarki, żeby podświetlić tryb już przy wysyłce.
     + '<div class="gora"><span class="uchwyt"></span><b>Czat</b>'
-    + '<button type="button" class="tryb" id="tryb-czatu"'
-    + ' data-zwykly="' + esc(CZAT.MODELE.zwykly) + '" data-planowanie="' + esc(CZAT.MODELE.planowanie) + '"'
-    + ' title="Przełącz tryb (zaczyna nową rozmowę)"></button>'
+    + '<div class="tryby" id="tryby" role="group" aria-label="Tryb rozmowy"'
+    + ' data-wzorzec="' + esc(CZAT.WZORZEC_PLANOWANIA.source) + '">'
+    + '<button type="button" data-tryb="zwykly" title="Pytania z kuchni i drobne zmiany — model '
+    + esc(CZAT.MODELE.zwykly) + '">zwykły<small> · ' + esc(CZAT.MODELE.zwykly) + '</small></button>'
+    + '<button type="button" data-tryb="planowanie" title="Cała sesja planowania tygodnia — model '
+    + esc(CZAT.MODELE.planowanie) + '">planowanie<small> · ' + esc(CZAT.MODELE.planowanie) + '</small></button>'
+    + '</div>'
     + '<button id="czysc" title="Nowa rozmowa" aria-label="Nowa rozmowa">&#8635;</button>'
     + '<button id="zamknij" aria-label="Zamknij czat">&times;</button></div>'
     + '<div class="srodek" id="srodek">'
@@ -1390,44 +1398,53 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
   // modeli przychodzą z serwera w data-*, więc widać je od razu, nie dopiero po pierwszej
   // odpowiedzi (planowanie na mocnym modelu potrafi myśleć minutę, zanim coś powie).
   // Stan trzymany w sesji karty, bo rozmowa po stronie serwera przeżywa przeładowanie.
-  var plakietka=document.getElementById('tryb-czatu'), trybNastepny='';
-  function pokazTryb(tryb,model){
-    if(!plakietka)return;
-    var plan=tryb==='planowanie';
-    var nazwa=model||(plan?plakietka.dataset.planowanie:plakietka.dataset.zwykly)||'';
-    plakietka.textContent=(plan?'planowanie':'zwykły')+(nazwa?' · '+nazwa:'');
-    plakietka.classList.toggle('plan',plan);
-    try{if(plan)sessionStorage.setItem(KL+':tryb',nazwa);else sessionStorage.removeItem(KL+':tryb')}catch(e){}
+  // Dwa tryby w nagłówku, aktywny podświetlony. Tryb należy do rozmowy: przed pierwszą
+  // wiadomością przełącza się bez pytania, w trakcie — zaczyna nową rozmowę (po
+  // potwierdzeniu). ↻ zaczyna od nowa w TYM SAMYM trybie. Stan w sesji karty, bo rozmowa
+  // po stronie serwera przeżywa przeładowanie strony.
+  var tryby=document.getElementById('tryby');
+  var tryb='zwykly', wybrany=false;
+  try{var zt=sessionStorage.getItem(KL+':tryb');if(zt==='planowanie'||zt==='zwykly')tryb=zt}catch(e){}
+  function pokazTryb(t){
+    tryb=t==='planowanie'?'planowanie':'zwykly';
+    if(tryby)[].slice.call(tryby.children).forEach(function(b){b.classList.toggle('on',b.dataset.tryb===tryb)});
+    try{sessionStorage.setItem(KL+':tryb',tryb)}catch(e){}
   }
-  (function(){var zt=null;try{zt=sessionStorage.getItem(KL+':tryb')}catch(e){}
-    pokazTryb(zt!==null?'planowanie':'zwykly',zt||'')})();
+  pokazTryb(tryb);
 
-  // Tryb należy do rozmowy, więc zmiana trybu = nowa rozmowa. Tryb „na następną
-  // wiadomość" pamiętamy tutaj, bo serwer dowie się o nim dopiero przy wysyłce.
-  function nowaRozmowa(tryb){
+  // Ten sam wzorzec, którym serwer wykrywa planowanie — żeby podświetlić tryb już przy
+  // wysyłce, a nie dopiero, gdy mocny model po minucie odpowie.
+  var wzorzec=null;
+  try{wzorzec=tryby&&tryby.dataset.wzorzec?new RegExp(tryby.dataset.wzorzec):null}catch(e){}
+  function wygladaNaPlanowanie(tekst){
+    if(!wzorzec)return false;
+    var n=String(tekst||'').toLowerCase().replace(/ł/g,'l').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
+    return wzorzec.test(n);
+  }
+
+  function nowaRozmowa(t){
     hist=[];czat.innerHTML='';
     if(powitanie)powitanie.hidden=false;
     try{sessionStorage.removeItem(KL)}catch(e){}
-    trybNastepny=tryb==='planowanie'?'planowanie':'';
-    pokazTryb(trybNastepny||'zwykly');
+    wybrany=false;
+    pokazTryb(t||tryb);
     return fetch('/api/czat/nowa',{method:'POST'}).catch(function(){});
   }
-  czysc.addEventListener('click',function(){nowaRozmowa();toast('Zaczynamy od nowa — tryb zwykły')});
-  if(plakietka)plakietka.addEventListener('click',function(){
-    var naPlan=!plakietka.classList.contains('plan');
-    if(!confirm(naPlan
-      ?'Zacząć nową rozmowę w trybie planowania? Chodzi wtedy mocniejszy model ('+(plakietka.dataset.planowanie||'')+').'
-      :'Wrócić do trybu zwykłego? To zaczyna nową rozmowę; obecna przepadnie.'))return;
-    nowaRozmowa(naPlan?'planowanie':'');
-    toast(naPlan?'Nowa rozmowa: planowanie':'Nowa rozmowa: tryb zwykły');
+  czysc.addEventListener('click',function(){nowaRozmowa(tryb);toast('Zaczynamy od nowa')});
+  if(tryby)tryby.addEventListener('click',function(e){
+    var b=e.target.closest('button');
+    if(!b||!b.dataset.tryb||b.dataset.tryb===tryb)return;
+    if(hist.length&&!confirm('Zmiana trybu zaczyna nową rozmowę — obecna przepadnie. Kontynuować?'))return;
+    nowaRozmowa(b.dataset.tryb);wybrany=true;
   });
 
   function rosnij(){pole.style.height='auto';pole.style.height=Math.min(pole.scrollHeight,110)+'px'}
   pole.addEventListener('input',rosnij);
 
-  function wyslij(tekst,tryb){
+  function wyslij(tekst,trybZPrzycisku){
     if(zajety||!tekst.trim())return;
     zajety=true;przycisk.disabled=true;
+    var pierwsza=!hist.length;
     dodaj('ja',tekst);zapisz('ja',tekst);
     pole.value='';rosnij();
 
@@ -1435,16 +1452,18 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
     czeka.className='mysli';czeka.innerHTML='<i></i><i></i><i></i>';
     czat.appendChild(czeka);srodek.scrollTop=srodek.scrollHeight;
 
-    // Tryb z przycisku albo ustawiony plakietką na tę rozmowę; plakietka od razu,
-    // nie dopiero po odpowiedzi.
-    var t=tryb||trybNastepny;trybNastepny='';
-    if(t==='planowanie')pokazTryb('planowanie');
+    // Tryb: z przycisku „Zaplanuj", z wyboru w nagłówku, a gdy nikt nic nie wybrał —
+    // pierwsza wiadomość nowej rozmowy może sama przełączyć na planowanie. Podświetlamy
+    // od razu; odpowiedź serwera i tak przyniesie tryb ostateczny.
+    var t=trybZPrzycisku||tryb;
+    if(!trybZPrzycisku&&!wybrany&&pierwsza&&tryb==='zwykly'&&wygladaNaPlanowanie(tekst))t='planowanie';
+    pokazTryb(t);
 
-    post('/api/czat',{wiadomosc:tekst,tryb:t||''}).then(function(d){
+    post('/api/czat',{wiadomosc:tekst,tryb:t}).then(function(d){
       czeka.remove();
       if(d.blad){dodaj('blad',d.blad);zapisz('blad',d.blad);}
       else{
-        pokazTryb(d.tryb,d.model);
+        if(d.tryb)pokazTryb(d.tryb);
         dodaj('on',d.tekst,d.pliki);zapisz('on',d.tekst,d.pliki);
         // Zmiana w plikach albo w zakupach dotyczy tego, co widać pod spodem.
         if(d.pliki&&d.pliki.length)toast('Zmieniono pliki — odśwież widok, żeby zobaczyć');
@@ -1710,7 +1729,8 @@ async function router(req, res) {
       const id = ciasteczka(req).pc_dev || 'wspolne';
       // Tryb z przycisku „Zaplanuj tydzień"; poza tym czat sam wykrywa planowanie
       // z pierwszej wiadomości nowej rozmowy.
-      const w = await CZAT.zapytaj(id, dane.wiadomosc, dane.tryb === 'planowanie' ? 'planowanie' : undefined);
+      const tryb = dane.tryb === 'planowanie' || dane.tryb === 'zwykly' ? dane.tryb : undefined;
+      const w = await CZAT.zapytaj(id, dane.wiadomosc, tryb);
       return json(res, w);
     } catch (e) {
       return json(res, { blad: e.message }, 500);

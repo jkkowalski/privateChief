@@ -37,8 +37,10 @@ Czat ma dwa tryby na dwóch modelach: **zwykły** (pytania z kuchni, drobne zmia
 domyślnie alias `sonnet`, tani i szybki) i **planowanie** (cała sesja układania tygodnia —
 domyślnie alias `opus`). Planowanie uruchamia przycisk „Zaplanuj następny tydzień"
 w zakładce Jadłospisy; rozpoznawane jest też z pierwszej wiadomości nowej rozmowy
-(„ułóż jadłospis…"). Tryb jest własnością rozmowy do „Nowej rozmowy", a w panelu widać
-plakietkę z modelem. Modele zmienisz w `konfiguracja/web.json`: `claudeModel`
+(„ułóż jadłospis…"). W nagłówku panelu są oba tryby z nazwami modeli, aktywny
+podświetlony: przed pierwszą wiadomością przełączasz je dowolnie, w trakcie rozmowy
+zmiana trybu zaczyna nową rozmowę (tryb należy do rozmowy), a ↻ zaczyna od nowa w tym
+samym trybie. Modele zmienisz w `konfiguracja/web.json`: `claudeModel`
 i `claudeModelPlanowanie` (aliasy `sonnet`/`opus`/`haiku` albo pełne identyfikatory).
 Plan ułożony z aplikacji zapisuje się od razu jako **propozycja** (pole `status`
 w nagłówku) — oglądasz go w zakładce Jadłospisy, a zatwierdzasz w czacie.
