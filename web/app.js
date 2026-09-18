@@ -524,6 +524,14 @@ function layout(title, body, aktywna, wstecz, skrypt) {
     + '<h1>' + esc(title) + '</h1></header>'
     + '<main>' + body + '</main>'
     + nav(aktywna)
+    // Strzałka „wstecz" w nagłówku zachowuje się jak przycisk wstecz przeglądarki: wraca
+    // tam, skąd się przyszło (Dziś, plan, książka), z przywróconym przewinięciem — a nie na
+    // sztywno do listy przepisów. Adres z href zostaje jako wyjście awaryjne, gdy w tej
+    // karcie nie ma dokąd wracać (link z zewnątrz, zakładka).
+    + (wstecz ? '<script>(function(){var a=document.querySelector("a.wstecz");if(!a)return;'
+      + 'a.addEventListener("click",function(e){'
+      + 'var swoj=document.referrer&&document.referrer.indexOf(location.origin+"/")===0;'
+      + 'if(!swoj||history.length<2)return;e.preventDefault();history.back();});})();</script>' : '')
     + '<div class="toast" id="toast" role="status" aria-live="polite"></div>'
     // Panel czatu dokładamy do każdej strony po zalogowaniu — na ekranie logowania
     // (aktywna === false) nie ma czego pytać, bo i tak nie przeszlibyśmy dalej.
