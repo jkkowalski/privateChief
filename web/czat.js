@@ -26,7 +26,13 @@ const U = require('../lib/uklad.js');
 // .mcp.json i CLAUDE.md rodziny, i tam trafiają commity.
 const ROOT = U.ROOT;
 const USTAWIENIA = path.join(__dirname, 'czat-uprawnienia.json');
-const LIMIT_MS = Number(process.env.PC_CZAT_TIMEOUT || 240000);
+// Limit czasu na turę, per tryb. Planowanie to wywiad i zapis kilkunastu plików na mocnym
+// modelu — 4 minuty zwykłej rozmowy to za mało, a ubicie procesu w połowie zostawia
+// tydzień zapisany do połowy.
+const LIMIT_MS = {
+  zwykly: Number(process.env.PC_CZAT_TIMEOUT || 240000),
+  planowanie: Number(process.env.PC_CZAT_TIMEOUT_PLANOWANIE || 600000)
+};
 
 // Klucz API zamiast logowania Claude Code: rozliczenie za zużycie, warunki komercyjne,
 // bez pytania o współdzielenie subskrypcji z domownikami. Ustawia go aplikacja
@@ -81,7 +87,9 @@ const KONTEKST = {
     'podaj tylko skrót: jedna linia na dzień, potem prośba o uwagi — domownik obejrzy plan',
     'w aplikacji w zakładce Jadłospisy. Po akceptacji usuń pole status. Listy zakupów nie',
     'wysyłaj do Bring! bez wyraźnego "wysyłaj". Po zapisaniu przepisów uruchom',
-    'sprawdz_wykluczenia i popraw trafienia, zanim poprosisz o akceptację.'
+    'sprawdz_wykluczenia i popraw trafienia, zanim poprosisz o akceptację.',
+    'Jeżeli domownik nie prosi o nowy tydzień, tylko o zmianę albo przebudowę bieżącego',
+    'planu — wykonaj tę zmianę od razu, bez wywiadu o miniony tydzień.'
   ].join(' ')
 };
 
@@ -99,7 +107,20 @@ function ustawModele(zwykly, planowanie) {
 // główną; to jest siatka na tych, którzy po prostu napiszą „ułóż jadłospis".
 // Wzorzec jest eksportowany, bo ten sam test robi też przeglądarka — żeby podświetlić
 // tryb planowania od razu przy wysyłce, a nie dopiero po odpowiedzi modelu.
-const WZORZEC_PLANOWANIA = /jadlospis|zaplanuj|zaplanowac|ulo(z|zyc)\s.*(tydzie|tygod)|plan(uj|u)?\s.*(tydzie|tygod)|menu na (tydzie|tygod)/;
+//
+// Łapie tylko wyraźny zamiar ułożenia NOWEGO tygodnia. Pierwsza wersja reagowała na samo
+// słowo „jadłospis" i prośba „zmieńmy plan posiłków, przelicz jadłospis z obecnego
+// tygodnia" wylądowała w trybie planowania — model zaczął wywiad o miniony tydzień zamiast
+// przebudować bieżący plan. Fałszywe trafienie kosztuje minuty na mocnym modelu i nie tę
+// odpowiedź, więc lepiej przepuścić wątpliwy przypadek do trybu zwykłego: przycisk
+// „Zaplanuj następny tydzień" i przełącznik w nagłówku są drogą główną.
+const WZORZEC_PLANOWANIA = new RegExp([
+  '(nastepny|przyszly|kolejny|nowy|nadchodzacy)\\s+tydzie',
+  'nowy\\s+jadlospis',
+  'zaplanuj\\w*\\s+(nam\\s+|mi\\s+)?tydzie',
+  '(zaplanuj\\w*|uloz\\w*|przygotuj\\w*|zrob\\w*)\\s+(nam\\s+|mi\\s+|nowy\\s+)?(jadlospis|menu|plan\\w*)(\\s+\\S+){0,4}?\\s+tydzie',
+  '(jadlospis|menu)\\s+na\\s+(caly\\s+|ten\\s+)?tydzie'
+].join('|'));
 function wykryjPlanowanie(tekst) {
   const n = String(tekst || '').toLowerCase()
     .replace(/ł/g, 'l').normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -126,6 +147,7 @@ function zapamietaj(id, sessionId, tryb) {
 
 function zapomnij(id) {
   sesje.delete(id);
+  ostatnie.delete(id);
 }
 
 // ---------------------------------------------------------------- git
@@ -220,14 +242,22 @@ function wywolaj(wiadomosc, sessionId, tryb) {
     // Bez powłoki — CLI jest ścieżką do pliku wykonywalnego, a cmd tylko psułby
     // cudzysłowy w argumentach (dotyczy to też --append-system-prompt).
     const env = KLUCZ_API ? Object.assign({}, process.env, { ANTHROPIC_API_KEY: KLUCZ_API }) : process.env;
-    const p = spawn(CLI, args, { cwd: ROOT, windowsHide: true, env });
+    // spawn potrafi rzucić od razu (plik nie jest programem, brak uprawnień) — nie tylko
+    // zgłosić 'error' później. Bez tego wyjątek uciekał z tej obietnicy jako odrzucenie.
+    let p;
+    try {
+      p = spawn(CLI, args, { cwd: ROOT, windowsHide: true, env });
+    } catch (e) {
+      return resolve({ blad: 'Nie mogę uruchomić Claude Code (' + e.message + ').' });
+    }
     let out = '', err = '';
     let zabity = false;
 
     p.stdin.on('error', () => { /* proces mógł już zniknąć */ });
     p.stdin.end(wiadomosc, 'utf8');
 
-    const budzik = setTimeout(() => { zabity = true; p.kill(); }, LIMIT_MS);
+    const limit = LIMIT_MS[KONTEKST[tryb] ? tryb : 'zwykly'];
+    const budzik = setTimeout(() => { zabity = true; p.kill(); }, limit);
 
     p.stdout.on('data', (d) => { out += d; });
     p.stderr.on('data', (d) => { err += d; });
@@ -237,7 +267,7 @@ function wywolaj(wiadomosc, sessionId, tryb) {
     });
     p.on('close', () => {
       clearTimeout(budzik);
-      if (zabity) return resolve({ blad: 'Odpowiedź nie przyszła w ciągu ' + Math.round(LIMIT_MS / 1000) + ' s. Spróbuj prościej sformułować prośbę.' });
+      if (zabity) return resolve({ blad: 'Odpowiedź nie przyszła w ciągu ' + Math.round(limit / 60000) + ' min. Spróbuj prościej sformułować prośbę.' });
 
       let d;
       try { d = JSON.parse(out.trim().split('\n').filter(Boolean).pop()); }
@@ -260,12 +290,38 @@ function wywolaj(wiadomosc, sessionId, tryb) {
 
 // ---------------------------------------------------------------- API modułu
 
-function zapytaj(idUrzadzenia, wiadomosc, trybZadany) {
-  return poKolei(async () => {
-    const tresc = String(wiadomosc || '').trim();
-    if (!tresc) return { blad: 'Pusta wiadomość.' };
-    if (tresc.length > 4000) return { blad: 'Wiadomość jest za długa.' };
+// Ostatnia tura per urządzenie — żeby odpowiedź dało się odzyskać, gdy telefon zgasił
+// ekran albo ktoś odświeżył stronę, zanim mocny model skończył myśleć. Bez tego odpowiedź
+// na pierwszą wiadomość szła w próżnię, a kolejna („halo?") dostawała odpowiedź na tamtą.
+const ostatnie = new Map();       // idUrzadzenia -> { wiadomosc, trwa, wynik, kiedy }
 
+function stan(id) {
+  const o = ostatnie.get(id);
+  if (!o) return { trwa: false, ostatnia: null };
+  const ostatnia = { wiadomosc: o.wiadomosc, kiedy: o.kiedy };
+  return { trwa: o.trwa, ostatnia: o.trwa ? ostatnia : Object.assign(ostatnia, o.wynik) };
+}
+
+function zapytaj(idUrzadzenia, wiadomosc, trybZadany) {
+  const tresc = String(wiadomosc || '').trim();
+  if (!tresc) return Promise.resolve({ blad: 'Pusta wiadomość.' });
+  if (tresc.length > 4000) return Promise.resolve({ blad: 'Wiadomość jest za długa.' });
+
+  // „Trwa" od chwili przyjęcia, nie od startu — w kolejce też się czeka.
+  ostatnie.set(idUrzadzenia, { wiadomosc: tresc, trwa: true, wynik: null, kiedy: Date.now() });
+
+  // Każdy wyjątek po drodze (git, spawn, cokolwiek) ma zostać zwykłym błędem tury:
+  // inaczej stan „trwa" nigdy by się nie zamknął i przeglądarka pytałaby o niego bez końca.
+  return poKolei(() => tura(idUrzadzenia, tresc, trybZadany).catch((e) => {
+    const wynik = { blad: 'Czat nie zadziałał: ' + (e && e.message ? e.message : String(e)) };
+    const o = ostatnie.get(idUrzadzenia);
+    if (o && o.wiadomosc === tresc && o.trwa) ostatnie.set(idUrzadzenia, { wiadomosc: tresc, trwa: false, wynik, kiedy: Date.now() });
+    return wynik;
+  }));
+}
+
+async function tura(idUrzadzenia, tresc, trybZadany) {
+  {
     // Zapamiętujemy, co leżało niezapisane już przed turą. Nic nie commitujemy
     // z góry — nieudana tura niczego nie zmienia, więc nie ma czego zapisywać.
     const zastane = await zmienionePliki();
@@ -281,12 +337,22 @@ function zapytaj(idUrzadzenia, wiadomosc, trybZadany) {
           : wykryjPlanowanie(tresc) ? 'planowanie' : 'zwykly';
 
     const w = await wywolaj(tresc, s ? s.sessionId : null, tryb);
-    if (w.blad) return { blad: w.blad };
-
-    zapamietaj(idUrzadzenia, w.sessionId, tryb);
-    const moje = await zapiszZmiany(tresc, zastane);
-    return { tekst: w.tekst, pliki: moje, ms: w.ms, tryb, model: MODELE[tryb] };
-  });
+    let wynik;
+    if (w.blad) {
+      wynik = { blad: w.blad, tryb, model: MODELE[tryb] };
+    } else {
+      zapamietaj(idUrzadzenia, w.sessionId, tryb);
+      const moje = await zapiszZmiany(tresc, zastane);
+      wynik = { tekst: w.tekst, pliki: moje, ms: w.ms, tryb, model: MODELE[tryb] };
+    }
+    // Zapisujemy wynik tylko, jeśli w międzyczasie nie przyszła nowsza wiadomość z tego
+    // urządzenia — wtedy to ona jest „ostatnią" i to na nią ktoś czeka.
+    const o = ostatnie.get(idUrzadzenia);
+    if (o && o.wiadomosc === tresc && o.trwa) {
+      ostatnie.set(idUrzadzenia, { wiadomosc: tresc, trwa: false, wynik, kiedy: Date.now() });
+    }
+    return wynik;
+  }
 }
 
 // Czy CLI w ogóle istnieje i czy jest zalogowane — do komunikatu w interfejsie.
@@ -305,4 +371,4 @@ function sprawdz() {
   });
 }
 
-module.exports = { zapytaj, sprawdz, zapomnij, ustawKluczApi, ustawModele, wykryjPlanowanie, WZORZEC_PLANOWANIA, argumenty, MODELE };
+module.exports = { zapytaj, stan, sprawdz, zapomnij, ustawKluczApi, ustawModele, wykryjPlanowanie, WZORZEC_PLANOWANIA, argumenty, MODELE };

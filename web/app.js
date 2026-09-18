@@ -1252,6 +1252,7 @@ const CSS_CZAT = `
   border-radius:999px;padding:8px 13px;font-size:13.5px;cursor:pointer;text-align:left}
 .podpowiedzi button:active{border-color:var(--accent);color:var(--accent)}
 .czat-pusty{color:var(--muted);font-size:14px;line-height:1.55}
+.mysli .czeka-opis{display:block;margin-top:8px;font-size:12.5px;line-height:1.4;color:var(--muted)}
 .ai-info{margin:0 0 14px;padding:8px 12px;border:1px dashed var(--line);border-radius:var(--r-mala);
   color:var(--muted);font-size:12.5px;line-height:1.45}
 /* Ostrzeżenie o wykluczeniach: ma się różnić od zwykłej uwagi, bo tu chodzi o alergię. */
@@ -1458,6 +1459,9 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
     var t=trybZPrzycisku||tryb;
     if(!trybZPrzycisku&&!wybrany&&pierwsza&&tryb==='zwykly'&&wygladaNaPlanowanie(tekst))t='planowanie';
     pokazTryb(t);
+    // Planowanie na mocnym modelu trwa minuty; bez tej linii wyglądało to jak zawieszenie.
+    if(t==='planowanie')czeka.innerHTML+='<span class="czeka-opis">Układam plan — to może potrwać kilka minut. '
+      +'Możesz zamknąć panel albo odświeżyć stronę, odpowiedź poczeka.</span>';
 
     post('/api/czat',{wiadomosc:tekst,tryb:t}).then(function(d){
       czeka.remove();
@@ -1495,6 +1499,35 @@ const SKRYPT_CZAT = SKRYPT_WSPOLNY + `
   // na telefonie arkusz zasłaniałby to, co użytkownik właśnie kliknął.
   // Po przejściu na inną stronę wracamy do otwartego panelu tylko w trybie zadokowanym
   // (na telefonie zasłaniałby to, co kliknięto), a wejście na /czat otwiera go wprost.
+  // Odpowiedź po odświeżeniu: gdy ostatni wpis to nasza wiadomość bez odpowiedzi, pytamy
+  // serwer o stan tury, aż skończy. Mocny model potrafi myśleć kilka minut, a telefon w tym
+  // czasie gasi ekran i zrywa żądanie — odpowiedź nie może przez to przepaść.
+  function odzyskaj(){
+    var ost=hist[hist.length-1];
+    if(!ost||ost.kto!=='ja')return;
+    var czeka=document.createElement('div');
+    czeka.className='mysli';czeka.innerHTML='<i></i><i></i><i></i>';
+    czat.appendChild(czeka);srodek.scrollTop=srodek.scrollHeight;
+    zajety=true;przycisk.disabled=true;
+    var proby=0;
+    function koniec(){czeka.remove();zajety=false;przycisk.disabled=false;}
+    (function sprawdz(){
+      fetch('/api/czat/stan').then(function(r){return r.json()}).then(function(s){
+        if(s.trwa&&proby++<240){setTimeout(sprawdz,3000);return}
+        koniec();
+        var o=s.ostatnia;
+        if(o&&o.wiadomosc===ost.tekst&&(o.tekst||o.blad)){
+          if(o.blad){dodaj('blad',o.blad);zapisz('blad',o.blad);}
+          else{if(o.tryb)pokazTryb(o.tryb);dodaj('on',o.tekst,o.pliki);zapisz('on',o.tekst,o.pliki);}
+        }else{
+          var m='Odpowiedź przepadła (serwer został zrestartowany) — wyślij wiadomość jeszcze raz.';
+          dodaj('blad',m);zapisz('blad',m);
+        }
+      }).catch(koniec);
+    })();
+  }
+  odzyskaj();
+
   try{
     if(window.PC_OTWORZ_CZAT) otworz();
     else if(sessionStorage.getItem(KL_OTW)&&szeroki()) otworz(true);
@@ -1721,6 +1754,10 @@ async function router(req, res) {
   if (sciezka === '/api/czat/nowa') {
     CZAT.zapomnij(ciasteczka(req).pc_dev || 'wspolne');
     return json(res, { ok: true });
+  }
+  // Stan ostatniej tury — po odświeżeniu strony przeglądarka pyta, czy odpowiedź już jest.
+  if (sciezka === '/api/czat/stan') {
+    return json(res, CZAT.stan(ciasteczka(req).pc_dev || 'wspolne'));
   }
   if (sciezka === '/api/czat') {
     if (req.method !== 'POST') return json(res, { blad: 'Zła metoda.' }, 405);
